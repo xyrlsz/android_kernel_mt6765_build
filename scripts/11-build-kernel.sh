@@ -10,7 +10,8 @@ ccache -s
 START_TIME=$(date +%s)
 
 set +e
-make -j"$(nproc)" O=out ARCH=arm64 SUBARCH=arm64 \
+# -k: 不在第一个编译错误处停下，一次构建尽量暴露所有错误（退出码仍按失败处理）
+make -k -j"$(nproc)" O=out ARCH=arm64 SUBARCH=arm64 \
   CC="ccache clang" \
   HOSTCC="ccache clang" \
   CLANG_TRIPLE=aarch64-linux-gnu- \

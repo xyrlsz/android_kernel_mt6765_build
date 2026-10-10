@@ -83,6 +83,10 @@ jobs:
         working-directory: ./kernel
         run: bash "$GITHUB_WORKSPACE/builder/scripts/06-strip-legacy-kernelsu.sh"
 
+      - name: Fix kernel source compile errors
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/06-fix-kernel-source-errors.sh"
+
       - name: Integrate Baka-SU into kernel source
         working-directory: ./kernel
         run: bash "$GITHUB_WORKSPACE/builder/scripts/07-integrate-bakasu.sh"
