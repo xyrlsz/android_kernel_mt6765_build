@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 上游补丁（JackA1ltman/NonGKI_Kernel_Build_2nd @ b5d7e5be60398f040b9e9919186c410c01a228da
+#   Patches/Patch/susfs_patch_to_4.19.patch，sha256 5E277F18...BADB）的上下文按另一套 4.19 基线写成，
+# 无法直接应用到本内核（fs/namei.c、fs/namespace.c、fs/proc/*、fs/readdir.c、fs/statfs.c、
+# fs/notify/fdinfo.c、kernel/kallsyms.c、kernel/sys.c、mm/memory.c、security/selinux/avc.c 等对不上）。
+# 因此本步骤应用按当前基线适配后的补丁 scripts/patches/susfs-4.19-adapted.patch：
+# hook 代码内容与上游完全一致，仅调整落点/上下文。
+
 KERNEL_MAJOR=$(sed -n 's/^VERSION = //p' Makefile)
 KERNEL_MINOR=$(sed -n 's/^PATCHLEVEL = //p' Makefile)
 if [ "$KERNEL_MAJOR" != "4" ] || [ "$KERNEL_MINOR" != "19" ]; then
@@ -8,13 +15,10 @@ if [ "$KERNEL_MAJOR" != "4" ] || [ "$KERNEL_MINOR" != "19" ]; then
   exit 1
 fi
 
-PATCH_COMMIT="b5d7e5be60398f040b9e9919186c410c01a228da"
-PATCH_URL="https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/${PATCH_COMMIT}/Patches/Patch/susfs_patch_to_4.19.patch"
-EXPECTED_SHA256="5E277F18FC8304E0818CEA3E8A7B838292CB9E59FDFFDAA1BE9CEFA288ABBADB"
 REQUIRED_SUSFS_VERSION="v2.3.0"
 SUSFS_HEADER="include/linux/susfs.h"
-PATCH_FILE=$(mktemp)
-trap 'rm -f "$PATCH_FILE"' EXIT
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ADAPTED_PATCH="$SCRIPT_DIR/patches/susfs-4.19-adapted.patch"
 
 echo "===== 检查内核源码中的 SUSFS 版本 ====="
 if [ -f "$SUSFS_HEADER" ]; then
@@ -28,20 +32,30 @@ if [ -f "$SUSFS_HEADER" ]; then
   exit 1
 fi
 
-echo "===== 下载 SUSFS ${REQUIRED_SUSFS_VERSION} Linux 4.19 移植补丁（固定提交 ${PATCH_COMMIT}） ====="
-curl -fL --retry 3 --retry-delay 5 -o "$PATCH_FILE" "$PATCH_URL"
-echo "$EXPECTED_SHA256  $PATCH_FILE" | sha256sum --check --status || {
-  echo "::error::SUSFS 补丁 SHA-256 校验失败"
+if [ ! -f "$ADAPTED_PATCH" ]; then
+  echo "::error::缺少 SUSFS 适配补丁：$ADAPTED_PATCH"
   exit 1
-}
+fi
 
-echo "===== 检查 SUSFS 补丁能否应用到当前内核源码 ====="
-if ! git apply --check "$PATCH_FILE"; then
-  echo "::error::SUSFS 补丁无法应用到当前内核源码；上面列出的文件需要按当前内核基线适配"
+echo "===== 检查 SUSFS ${REQUIRED_SUSFS_VERSION} 补丁能否应用 ====="
+if ! git apply --check "$ADAPTED_PATCH"; then
+  echo "::error::SUSFS 补丁无法应用到当前内核源码；上面的文件需要重新做基线适配"
   exit 1
 fi
 
 echo "===== 应用 SUSFS 内核侧补丁 ====="
-git apply "$PATCH_FILE"
+git apply "$ADAPTED_PATCH"
 
-echo "===== SUSFS 4.19 补丁应用完成 ====="
+echo "===== 验证 SUSFS 集成结果 ====="
+for f in fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h; do
+  if [ ! -f "$f" ]; then
+    echo "::error::SUSFS 补丁应用后缺少 $f"
+    exit 1
+  fi
+done
+if ! grep -q '^obj-\$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile; then
+  echo "::error::fs/Makefile 缺少 susfs.o"
+  exit 1
+fi
+
+echo "===== SUSFS 4.19 补丁应用完成（$(sed -n 's/^#define SUSFS_VERSION[[:space:]]*"\(.*\)"/\1/p' include/linux/susfs.h | head -n1)） ====="
