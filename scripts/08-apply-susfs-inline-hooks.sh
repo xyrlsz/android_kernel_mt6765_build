@@ -14,6 +14,28 @@ EXPECTED_SHA256="9AFA89EE6474B80E2615096B926C1D8EEF1CB7585F74130A375FBE6CF63D00F
 HOOK_SCRIPT=$(mktemp)
 trap 'rm -f "$HOOK_SCRIPT"' EXIT
 
+echo "===== 检查 SUSFS inline hook 是否已在当前内核源码中存在 ====="
+all_hooks_present=1
+for check in \
+  'fs/exec.c:ksu_handle_execveat_sucompat' \
+  'fs/open.c:ksu_handle_faccessat' \
+  'fs/read_write.c:ksu_handle_sys_read' \
+  'fs/stat.c:ksu_handle_stat' \
+  'drivers/input/input.c:ksu_handle_input_handle_event' \
+  'kernel/reboot.c:ksu_handle_sys_reboot' \
+  'kernel/sys.c:ksu_handle_setresuid'; do
+  source=${check%%:*}
+  hook=${check#*:}
+  if ! grep -Fq "$hook" "$source" 2>/dev/null; then
+    all_hooks_present=0
+    break
+  fi
+done
+if [ "$all_hooks_present" -eq 1 ]; then
+  echo "===== SUSFS inline hooks 已存在，跳过重复应用 ====="
+  exit 0
+fi
+
 echo "===== 下载并校验 SUSFS inline-hook 脚本（固定提交 ${INLINE_HOOK_COMMIT}） ====="
 curl -fL --retry 3 --retry-delay 5 -o "$HOOK_SCRIPT" "$INLINE_HOOK_URL"
 echo "$EXPECTED_SHA256  $HOOK_SCRIPT" | sha256sum --check --status || {

@@ -16,19 +16,19 @@ ADAPTATION_PATCH="$SCRIPT_DIR/patches/susfs-4.19-adaptation.patch"
 PATCH_FILE=$(mktemp)
 trap 'rm -f "$PATCH_FILE"' EXIT
 
+echo "===== 检查 SUSFS 补丁是否已在当前内核源码中存在 ====="
+if grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile ||
+  grep -Fq 'susfs_spoof_cmdline_or_bootconfig' fs/proc/cmdline.c; then
+  echo "===== SUSFS 补丁已存在，跳过重复应用 ====="
+  exit 0
+fi
+
 echo "===== 下载 SUSFS v2.3.0 Linux 4.19 移植补丁（固定提交 ${PATCH_COMMIT}） ====="
 curl -fL --retry 3 --retry-delay 5 -o "$PATCH_FILE" "$PATCH_URL"
 echo "$EXPECTED_SHA256  $PATCH_FILE" | sha256sum --check --status || {
   echo "::error::SUSFS 补丁 SHA-256 校验失败"
   exit 1
 }
-
-echo "===== 检查 SUSFS 补丁是否适配当前内核源码 ====="
-if grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile ||
-  grep -Fq 'susfs_spoof_cmdline_or_bootconfig' fs/proc/cmdline.c; then
-  echo "::error::检测到 SUSFS 补丁或相关适配已存在，拒绝重复应用"
-  exit 1
-fi
 
 echo "===== 检查 SUSFS 补丁（适配文件） ====="
 if ! git apply --check \
