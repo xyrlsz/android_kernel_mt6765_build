@@ -83,9 +83,9 @@ jobs:
         working-directory: ./kernel
         run: bash "$GITHUB_WORKSPACE/builder/scripts/07-integrate-bakasu.sh"
 
-      - name: Apply SUSFS 4.14 patch
+      - name: Apply SUSFS 4.19 patch
         working-directory: ./kernel
-        run: bash "$GITHUB_WORKSPACE/builder/scripts/08-apply-susfs-4.14-patch.sh"
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/08-apply-susfs-4.19-patch.sh"
 
       - name: Apply SUSFS inline hooks
         working-directory: ./kernel
