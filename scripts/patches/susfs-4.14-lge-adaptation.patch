@@ -1,0 +1,33 @@
+diff --git a/fs/Makefile b/fs/Makefile
+index 47ba96f..47ba96f 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -20,3 +20,4 @@
+ # LGE_CHANGE_E
+ 
++obj-$(CONFIG_KSU_SUSFS) += susfs.o
+ ifeq ($(CONFIG_BLOCK),y)
+diff --git a/fs/proc/cmdline.c b/fs/proc/cmdline.c
+index 551c060..551c060 100644
+--- a/fs/proc/cmdline.c
++++ b/fs/proc/cmdline.c
+@@ -5,3 +5,8 @@
+ #include <linux/seq_file.h>
+ 
++#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
++extern struct static_key_false susfs_is_fake_cmdline_or_bootconfig_buffer_set;
++extern void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m);
++#endif
++
+ #ifdef CONFIG_MACH_LGE
+@@ -68,3 +73,10 @@
+ static int cmdline_proc_show(struct seq_file *m, void *v)
+ {
++#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
++	if (static_branch_likely(&susfs_is_fake_cmdline_or_bootconfig_buffer_set)) {
++		susfs_spoof_cmdline_or_bootconfig(m);
++		seq_putc(m, '\n');
++		return 0;
++	}
++#endif
+ #ifdef CONFIG_MACH_LGE

@@ -1,0 +1,134 @@
+name: Build Redmi 9A (dandelion, MT6765) + Baka-SU + SUSFS + AnyKernel3
+
+"on":
+  workflow_dispatch:
+    inputs:
+      kernel_branch:
+        description: "Kernel branch to build"
+        required: true
+        default: "main"
+      defconfig_path:
+        description: "Path to defconfig (relative to kernel root)"
+        required: true
+        default: "blossom_defconfig"
+      bakasu_tag:
+        description: "Baka-SU tag/ref (留空使用 main 分支最新提交)"
+        required: false
+        default: ""
+
+env:
+  KERNEL_REPO: "plmzaq2112/android_kernel_mt6765"
+  ARCH: arm64
+  SUBARCH: arm64
+  CCACHE_DIR: /home/runner/.cache/ccache-kernel
+  ZYC_CLANG_VERSION: "16.0.6-20260807"
+  BAKASU_REPO: "https://github.com/Baka-SU/BakaSU.git"
+  KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch }}
+  DEFCONFIG_PATH: ${{ github.event.inputs.defconfig_path }}
+  BAKASU_TAG_INPUT: ${{ github.event.inputs.bakasu_tag }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          path: builder
+
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_BRANCH }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/00-install-deps.sh"
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/ccache-kernel
+          key: ${{ runner.os }}-kernel-ccache-${{ env.KERNEL_BRANCH }}-${{ env.ZYC_CLANG_VERSION }}-bakasu-dwarf4-${{ hashFiles('kernel/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-kernel-ccache-${{ env.KERNEL_BRANCH }}-${{ env.ZYC_CLANG_VERSION }}-bakasu-dwarf4-
+            ${{ runner.os }}-kernel-ccache-${{ env.KERNEL_BRANCH }}-${{ env.ZYC_CLANG_VERSION }}-
+            ${{ runner.os }}-kernel-ccache-${{ env.KERNEL_BRANCH }}-
+
+      - name: Setup ccache environment
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/01-setup-ccache.sh"
+
+      - name: Setup zyc-clang toolchain
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/02-setup-zyc-clang.sh"
+
+      - name: Clone arm64 and compat GCC 4.9 toolchains
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/03-setup-gcc.sh"
+
+      - name: Verify toolchain
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/04-verify-toolchain.sh"
+
+      - name: Configure kernel
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/05-configure-kernel.sh"
+
+      - name: Apply Droidspaces non-GKI patches
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/06-apply-droidspaces-patches.sh"
+
+      - name: Integrate Baka-SU into kernel source
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/07-integrate-bakasu.sh"
+
+      - name: Apply SUSFS 4.14 patch
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/08-apply-susfs-4.14-patch.sh"
+
+      - name: Apply SUSFS inline hooks
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/08-apply-susfs-inline-hooks.sh"
+
+      - name: Enable Baka-SU SUSFS inline-hook config
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/09-enable-bakasu-config.sh"
+
+      - name: Disable DTBO overlay compilation
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/10-disable-dtbo.sh"
+
+      - name: Build kernel
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/11-build-kernel.sh"
+
+      - name: Show ccache stats after build
+        if: always()
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/12-show-ccache-stats.sh"
+
+      - name: Setup AnyKernel3
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/13-setup-anykernel3.sh"
+
+      - name: Copy kernel into AnyKernel3
+        working-directory: ./kernel
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/14-copy-kernel.sh"
+
+      - name: Create AnyKernel3 zip
+        run: bash "$GITHUB_WORKSPACE/builder/scripts/15-package-anykernel3.sh"
+
+      - name: Upload AnyKernel3 zip
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-dandelion-kernel-${{ github.run_number }}
+          path: ${{ github.workspace }}/boot-dandelion-kernel-*.zip
+          retention-days: 7
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: kernel/build.log
+          retention-days: 7
